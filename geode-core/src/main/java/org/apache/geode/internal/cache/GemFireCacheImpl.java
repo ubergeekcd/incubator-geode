@@ -1756,7 +1756,8 @@ public class GemFireCacheImpl
       boolean testIGE = Boolean.getBoolean("TestInternalGemFireError");
 
       if (testIGE) {
-        InternalGemFireError assErr = new InternalGemFireError(LocalizedStrings.GemFireCache_UNEXPECTED_EXCEPTION.toLocalizedString());
+        InternalGemFireError assErr = new InternalGemFireError(
+            LocalizedStrings.GemFireCache_UNEXPECTED_EXCEPTION.toLocalizedString());
         throw assErr;
       }
       if (isCacheAtShutdownAll()) {
