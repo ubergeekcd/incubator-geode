@@ -213,6 +213,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -543,7 +544,8 @@ public class GemFireCacheImpl
 
   private final Object clientMetaDatServiceLock = new Object();
 
-  private volatile boolean isShutDownAll = false;
+  private final AtomicBoolean isShutDownAll = new AtomicBoolean();
+  private final CountDownLatch shutDownAllFinished = new CountDownLatch(1);
 
   private final ResourceAdvisor resourceAdvisor;
   private final JmxManagerAdvisor jmxAdvisor;
@@ -1735,7 +1737,7 @@ public class GemFireCacheImpl
   }
 
   public boolean isCacheAtShutdownAll() {
-    return isShutDownAll;
+    return isShutDownAll.get();
   }
 
   /**
@@ -1752,58 +1754,67 @@ public class GemFireCacheImpl
   }
 
   public void shutDownAll() {
+    if (!this.isShutDownAll.compareAndSet(false, true)) {
+      // it's already doing shutdown by another thread
+      try {
+        this.shutDownAllFinished.await();
+      } catch (InterruptedException e) {
+        logger.debug("Shutdown all interrupted while waiting for another thread to do the shutDownAll");
+        Thread.currentThread().interrupt();
+      }
+      return;
+    }
     synchronized (GemFireCacheImpl.class) {
-      boolean testIGE = Boolean.getBoolean("TestInternalGemFireError");
+      try {
+        boolean testIGE = Boolean.getBoolean("TestInternalGemFireError");
 
-      if (testIGE) {
-        InternalGemFireError assErr = new InternalGemFireError(
-            LocalizedStrings.GemFireCache_UNEXPECTED_EXCEPTION.toLocalizedString());
-        throw assErr;
-      }
-      if (isCacheAtShutdownAll()) {
-        // it's already doing shutdown by another thread
-        return;
-      }
-      if (LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER) {
-        try {
-          CacheObserverHolder.getInstance().beforeShutdownAll();
-        } finally {
-          LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER = false;
+        if (testIGE) {
+          InternalGemFireError assErr = new InternalGemFireError(
+              LocalizedStrings.GemFireCache_UNEXPECTED_EXCEPTION.toLocalizedString());
+          throw assErr;
         }
-      }
-      this.isShutDownAll = true;
-
-      // bug 44031 requires multithread shutdownall should be grouped
-      // by root region. However, shutDownAllDuringRecovery.conf test revealed that
-      // we have to close colocated child regions first.
-      // Now check all the PR, if anyone has colocate-with attribute, sort all the
-      // PRs by colocation relationship and close them sequentially, otherwise still
-      // group them by root region.
-      TreeMap<String, Map<String, PartitionedRegion>> prTrees = getPRTrees();
-      if (prTrees.size() > 1 && shutdownAllPoolSize != 1) {
-        ExecutorService es = getShutdownAllExecutorService(prTrees.size());
-        for (final Map<String, PartitionedRegion> prSubMap : prTrees.values()) {
-          es.execute(new Runnable() {
-            public void run() {
-              ConnectionTable.threadWantsSharedResources();
-              shutdownSubTreeGracefully(prSubMap);
-            }
-          });
-        } // for each root
-        es.shutdown();
-        try {
-          es.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-          logger.debug("Shutdown all interrupted while waiting for PRs to be shutdown gracefully.");
+        if (LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER) {
+          try {
+            CacheObserverHolder.getInstance().beforeShutdownAll();
+          } finally {
+            LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER = false;
+          }
         }
 
-      } else {
-        for (final Map<String, PartitionedRegion> prSubMap : prTrees.values()) {
-          shutdownSubTreeGracefully(prSubMap);
-        }
-      }
+        // bug 44031 requires multithread shutdownall should be grouped
+        // by root region. However, shutDownAllDuringRecovery.conf test revealed that
+        // we have to close colocated child regions first.
+        // Now check all the PR, if anyone has colocate-with attribute, sort all the
+        // PRs by colocation relationship and close them sequentially, otherwise still
+        // group them by root region.
+        TreeMap<String, Map<String, PartitionedRegion>> prTrees = getPRTrees();
+        if (prTrees.size() > 1 && shutdownAllPoolSize != 1) {
+          ExecutorService es = getShutdownAllExecutorService(prTrees.size());
+          for (final Map<String, PartitionedRegion> prSubMap : prTrees.values()) {
+            es.execute(new Runnable() {
+              public void run() {
+                ConnectionTable.threadWantsSharedResources();
+                shutdownSubTreeGracefully(prSubMap);
+              }
+            });
+          } // for each root
+          es.shutdown();
+          try {
+            es.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
+          } catch (InterruptedException e) {
+            logger.debug("Shutdown all interrupted while waiting for PRs to be shutdown gracefully.");
+          }
 
-      close("Shut down all members", null, false, true);
+        } else {
+          for (final Map<String, PartitionedRegion> prSubMap : prTrees.values()) {
+            shutdownSubTreeGracefully(prSubMap);
+          }
+        }
+
+        close("Shut down all members", null, false, true);
+      } finally {
+        this.shutDownAllFinished.countDown();
+      }
     }
   }
 
