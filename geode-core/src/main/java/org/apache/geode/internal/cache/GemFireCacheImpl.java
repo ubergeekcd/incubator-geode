@@ -1759,7 +1759,8 @@ public class GemFireCacheImpl
       try {
         this.shutDownAllFinished.await();
       } catch (InterruptedException e) {
-        logger.debug("Shutdown all interrupted while waiting for another thread to do the shutDownAll");
+        logger.debug(
+            "Shutdown all interrupted while waiting for another thread to do the shutDownAll");
         Thread.currentThread().interrupt();
       }
       return;
@@ -1802,7 +1803,8 @@ public class GemFireCacheImpl
           try {
             es.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
           } catch (InterruptedException e) {
-            logger.debug("Shutdown all interrupted while waiting for PRs to be shutdown gracefully.");
+            logger
+                .debug("Shutdown all interrupted while waiting for PRs to be shutdown gracefully.");
           }
 
         } else {

@@ -196,8 +196,10 @@ public class ShutdownAllDUnitTest extends JUnit4CacheTestCase {
   private static final AtomicBoolean calledCreateCache = new AtomicBoolean();
   private static final AtomicBoolean calledCloseCache = new AtomicBoolean();
   private static CacheLifecycleListener cll;
+
   @Test
-  public void testShutdownAllInterruptsCacheCreation() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testShutdownAllInterruptsCacheCreation()
+      throws ExecutionException, InterruptedException, TimeoutException {
     Host host = Host.getHost(0);
     VM vm0 = host.getVM(0);
     VM vm2 = host.getVM(2);
@@ -211,6 +213,7 @@ public class ShutdownAllDUnitTest extends JUnit4CacheTestCase {
           calledCreateCache.set(true);
           Awaitility.await().atMost(90, TimeUnit.SECONDS).until(() -> cache.isCacheAtShutdownAll());
         }
+
         @Override
         public void cacheClosed(GemFireCacheImpl cache) {
           calledCloseCache.set(true);
@@ -240,6 +243,7 @@ public class ShutdownAllDUnitTest extends JUnit4CacheTestCase {
       });
     }
   }
+
   @Test
   public void testShutdownAllOneServerAndRecover() throws Throwable {
     Host host = Host.getHost(0);
