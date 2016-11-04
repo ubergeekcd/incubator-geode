@@ -1754,6 +1754,13 @@ public class GemFireCacheImpl
   }
 
   public void shutDownAll() {
+    if (LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER) {
+      try {
+        CacheObserverHolder.getInstance().beforeShutdownAll();
+      } finally {
+        LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER = false;
+      }
+    }
     if (!this.isShutDownAll.compareAndSet(false, true)) {
       // it's already doing shutdown by another thread
       try {
@@ -1773,13 +1780,6 @@ public class GemFireCacheImpl
           InternalGemFireError assErr = new InternalGemFireError(
               LocalizedStrings.GemFireCache_UNEXPECTED_EXCEPTION.toLocalizedString());
           throw assErr;
-        }
-        if (LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER) {
-          try {
-            CacheObserverHolder.getInstance().beforeShutdownAll();
-          } finally {
-            LocalRegion.ISSUE_CALLBACKS_TO_CACHE_OBSERVER = false;
-          }
         }
 
         // bug 44031 requires multithread shutdownall should be grouped
